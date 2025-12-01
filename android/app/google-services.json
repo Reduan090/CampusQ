@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "8574803772",
+    "project_id": "campusq-d754c",
+    "storage_bucket": "campusq-d754c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:8574803772:android:8157795f6129412539c839",
+        "android_client_info": {
+          "package_name": "com.example.hci_project"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAiopl-Ihv5rqRZqdeVsazNl9G91Qr6Qjw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
