@@ -58,12 +58,12 @@ class TokenService extends ChangeNotifier {
   }
 
   Future<Token> requestToken(TokenType type, {String? message}) async {
-    try {
-      await Future.delayed(const Duration(milliseconds: 300));
+    await Future.delayed(const Duration(milliseconds: 300));
 
-      final userId = _userId ?? FirebaseAuth.instance.currentUser?.uid ?? 'guest';
+    final userId = _userId ?? FirebaseAuth.instance.currentUser?.uid ?? 'guest';
 
-      if (_useFirestore && _firestore != null) {
+    if (_useFirestore && _firestore != null) {
+      try {
         // Compute queue size from Firestore for this type with timeout
         final qSnap = await _firestore!
             .collection('tokens')
@@ -72,7 +72,7 @@ class TokenService extends ChangeNotifier {
             .get()
             .timeout(
               const Duration(seconds: 5),
-              onTimeout: () => throw Exception('Firebase connection timed out'),
+              onTimeout: () => throw TimeoutException('Query timeout'),
             );
         final currentQueue = qSnap.size;
 
@@ -99,7 +99,7 @@ class TokenService extends ChangeNotifier {
           'message': message,
         }).timeout(
           const Duration(seconds: 5),
-          onTimeout: () => throw Exception('Failed to save token to database'),
+          onTimeout: () => throw TimeoutException('Write timeout'),
         );
 
         // Add to local list immediately for better UX
@@ -107,35 +107,48 @@ class TokenService extends ChangeNotifier {
         notifyListeners();
         
         return token;
-      } else {
-        final currentQueue = _getCurrentQueueSize(type);
-        final token = Token(
-          id: _generateTokenId(),
-          userId: userId,
-          type: type,
-          requestedAt: DateTime.now(),
-          queuePosition: currentQueue + 1,
-          totalInQueue: currentQueue + 1,
-          status: TokenStatus.pending,
-          message: message,
-        );
-        _allTokens.add(token);
-        _queueCounters[type] = (_queueCounters[type] ?? 0) + 1;
-        notifyListeners();
-        return token;
+      } catch (e) {
+        // Firebase failed, fall back to local storage
+        debugPrint('Firestore failed, using local storage: $e');
+        // Continue to local storage implementation below
       }
-    } catch (e) {
-      debugPrint('Error requesting token: $e');
-      rethrow;
     }
+    
+    // Local storage implementation (fallback or default)
+    final currentQueue = _getCurrentQueueSize(type);
+    final token = Token(
+      id: _generateTokenId(),
+      userId: userId,
+      type: type,
+      requestedAt: DateTime.now(),
+      queuePosition: currentQueue + 1,
+      totalInQueue: currentQueue + 1,
+      status: TokenStatus.pending,
+      message: message,
+    );
+    _allTokens.add(token);
+    _queueCounters[type] = (_queueCounters[type] ?? 0) + 1;
+    notifyListeners();
+    return token;
   }
 
   Future<void> approveToken(String tokenId) async {
     if (_useFirestore && _firestore != null) {
-      await _firestore!.collection('tokens').doc(tokenId).update({
-        'status': TokenStatus.approved.name,
-      });
-      return;
+      try {
+        await _firestore!.collection('tokens').doc(tokenId).update({
+          'status': TokenStatus.approved.name,
+        }).timeout(const Duration(seconds: 5));
+        // Update local cache
+        final token = getTokenById(tokenId);
+        if (token != null) {
+          token.status = TokenStatus.approved;
+          notifyListeners();
+        }
+        return;
+      } catch (e) {
+        debugPrint('Firestore approve failed, using local: $e');
+        // Fall through to local update
+      }
     }
     final token = getTokenById(tokenId);
     if (token != null) {
@@ -146,11 +159,23 @@ class TokenService extends ChangeNotifier {
 
   Future<void> rejectToken(String tokenId) async {
     if (_useFirestore && _firestore != null) {
-      await _firestore!.collection('tokens').doc(tokenId).update({
-        'status': TokenStatus.rejected.name,
-        'completedAt': DateTime.now().toIso8601String(),
-      });
-      return;
+      try {
+        await _firestore!.collection('tokens').doc(tokenId).update({
+          'status': TokenStatus.rejected.name,
+          'completedAt': DateTime.now().toIso8601String(),
+        }).timeout(const Duration(seconds: 5));
+        // Update local cache
+        final token = getTokenById(tokenId);
+        if (token != null) {
+          token.status = TokenStatus.rejected;
+          token.completedAt = DateTime.now();
+          notifyListeners();
+        }
+        return;
+      } catch (e) {
+        debugPrint('Firestore reject failed, using local: $e');
+        // Fall through to local update
+      }
     }
     final token = getTokenById(tokenId);
     if (token != null) {
@@ -162,11 +187,23 @@ class TokenService extends ChangeNotifier {
 
   void cancelToken(String tokenId) async {
     if (_useFirestore && _firestore != null) {
-      await _firestore!.collection('tokens').doc(tokenId).update({
-        'status': TokenStatus.expired.name,
-        'completedAt': DateTime.now().toIso8601String(),
-      });
-      return;
+      try {
+        await _firestore!.collection('tokens').doc(tokenId).update({
+          'status': TokenStatus.expired.name,
+          'completedAt': DateTime.now().toIso8601String(),
+        }).timeout(const Duration(seconds: 5));
+        // Update local cache
+        final token = getTokenById(tokenId);
+        if (token != null) {
+          token.status = TokenStatus.expired;
+          token.completedAt = DateTime.now();
+          notifyListeners();
+        }
+        return;
+      } catch (e) {
+        debugPrint('Firestore cancel failed, using local: $e');
+        // Fall through to local update
+      }
     }
     final token = getTokenById(tokenId);
     if (token != null) {
@@ -178,11 +215,23 @@ class TokenService extends ChangeNotifier {
 
   void completeToken(String tokenId) async {
     if (_useFirestore && _firestore != null) {
-      await _firestore!.collection('tokens').doc(tokenId).update({
-        'status': TokenStatus.completed.name,
-        'completedAt': DateTime.now().toIso8601String(),
-      });
-      return;
+      try {
+        await _firestore!.collection('tokens').doc(tokenId).update({
+          'status': TokenStatus.completed.name,
+          'completedAt': DateTime.now().toIso8601String(),
+        }).timeout(const Duration(seconds: 5));
+        // Update local cache
+        final token = getTokenById(tokenId);
+        if (token != null) {
+          token.status = TokenStatus.completed;
+          token.completedAt = DateTime.now();
+          notifyListeners();
+        }
+        return;
+      } catch (e) {
+        debugPrint('Firestore complete failed, using local: $e');
+        // Fall through to local update
+      }
     }
     final token = getTokenById(tokenId);
     if (token != null) {
