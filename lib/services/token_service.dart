@@ -58,60 +58,75 @@ class TokenService extends ChangeNotifier {
   }
 
   Future<Token> requestToken(TokenType type, {String? message}) async {
-    await Future.delayed(const Duration(milliseconds: 300));
+    try {
+      await Future.delayed(const Duration(milliseconds: 300));
 
-    final userId = _userId ?? FirebaseAuth.instance.currentUser?.uid ?? 'guest';
+      final userId = _userId ?? FirebaseAuth.instance.currentUser?.uid ?? 'guest';
 
-    if (_useFirestore && _firestore != null) {
-      // Compute queue size from Firestore for this type
-      final qSnap = await _firestore!
-          .collection('tokens')
-          .where('type', isEqualTo: type.name)
-          .where('status', whereIn: ['approved', 'waiting', 'nearTurn', 'active'])
-          .get();
-      final currentQueue = qSnap.size;
+      if (_useFirestore && _firestore != null) {
+        // Compute queue size from Firestore for this type with timeout
+        final qSnap = await _firestore!
+            .collection('tokens')
+            .where('type', isEqualTo: type.name)
+            .where('status', whereIn: ['approved', 'waiting', 'nearTurn', 'active'])
+            .get()
+            .timeout(
+              const Duration(seconds: 5),
+              onTimeout: () => throw Exception('Firebase connection timed out'),
+            );
+        final currentQueue = qSnap.size;
 
-      final id = _generateTokenId();
-      final token = Token(
-        id: id,
-        userId: userId,
-        type: type,
-        requestedAt: DateTime.now(),
-        queuePosition: currentQueue + 1,
-        totalInQueue: currentQueue + 1,
-        status: TokenStatus.pending,
-        message: message,
-      );
+        final id = _generateTokenId();
+        final token = Token(
+          id: id,
+          userId: userId,
+          type: type,
+          requestedAt: DateTime.now(),
+          queuePosition: currentQueue + 1,
+          totalInQueue: currentQueue + 1,
+          status: TokenStatus.pending,
+          message: message,
+        );
 
-      await _firestore!.collection('tokens').doc(id).set({
-        'id': id,
-        'userId': userId,
-        'type': type.name,
-        'requestedAt': token.requestedAt.toIso8601String(),
-        'queuePosition': token.queuePosition,
-        'totalInQueue': token.totalInQueue,
-        'status': token.status.name,
-        'message': message,
-      });
+        await _firestore!.collection('tokens').doc(id).set({
+          'id': id,
+          'userId': userId,
+          'type': type.name,
+          'requestedAt': token.requestedAt.toIso8601String(),
+          'queuePosition': token.queuePosition,
+          'totalInQueue': token.totalInQueue,
+          'status': token.status.name,
+          'message': message,
+        }).timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => throw Exception('Failed to save token to database'),
+        );
 
-      // Local list will be updated by listener; return immediate token
-      return token;
-    } else {
-      final currentQueue = _getCurrentQueueSize(type);
-      final token = Token(
-        id: _generateTokenId(),
-        userId: userId,
-        type: type,
-        requestedAt: DateTime.now(),
-        queuePosition: currentQueue + 1,
-        totalInQueue: currentQueue + 1,
-        status: TokenStatus.pending,
-        message: message,
-      );
-      _allTokens.add(token);
-      _queueCounters[type] = (_queueCounters[type] ?? 0) + 1;
-      notifyListeners();
-      return token;
+        // Add to local list immediately for better UX
+        _allTokens.add(token);
+        notifyListeners();
+        
+        return token;
+      } else {
+        final currentQueue = _getCurrentQueueSize(type);
+        final token = Token(
+          id: _generateTokenId(),
+          userId: userId,
+          type: type,
+          requestedAt: DateTime.now(),
+          queuePosition: currentQueue + 1,
+          totalInQueue: currentQueue + 1,
+          status: TokenStatus.pending,
+          message: message,
+        );
+        _allTokens.add(token);
+        _queueCounters[type] = (_queueCounters[type] ?? 0) + 1;
+        notifyListeners();
+        return token;
+      }
+    } catch (e) {
+      debugPrint('Error requesting token: $e');
+      rethrow;
     }
   }
 

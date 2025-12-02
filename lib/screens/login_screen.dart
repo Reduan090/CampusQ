@@ -152,6 +152,13 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _onSignIn(BuildContext context) async {
+    if (_emailController.text.trim().isEmpty || _passwordController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter email and password')),
+      );
+      return;
+    }
+
     setState(() => _loading = true);
     try {
       await context.read<AuthService>().signIn(
@@ -159,6 +166,15 @@ class _LoginScreenState extends State<LoginScreen> {
             password: _passwordController.text,
             role: _selectedRole,
           );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceAll('Exception: ', '')),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }

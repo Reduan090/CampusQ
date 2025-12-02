@@ -135,72 +135,140 @@ class _TokenTypeCard extends StatelessWidget {
 
     if (shouldProceed != true) return;
 
-    // Show loading
-    if (context.mounted) {
+    try {
+      final message = messageController.text.trim();
+      
+      // Show loading with timeout protection
+      if (!context.mounted) return;
+      
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(),
+        builder: (context) => const AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 20),
+              Text('Requesting token...'),
+            ],
+          ),
         ),
       );
-    }
 
-    try {
-      final message = messageController.text.trim();
+      // Request token with timeout
       final token = await tokenService.requestToken(
         type,
         message: message.isEmpty ? null : message,
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('Request timed out. Please try again.');
+        },
       );
 
-      if (context.mounted) {
-        Navigator.of(context).pop(); // Close loading
+      if (!context.mounted) return;
+      
+      // Close loading dialog
+      Navigator.of(context).pop();
 
-        // Show success dialog
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            icon: const Icon(Icons.check_circle, color: Colors.green, size: 48),
-            title: const Text('Token Requested!'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Token Number: ${token.tokenNumber}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
+      // Show success with SnackBar for better UX
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Token Requested Successfully!',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    Text('Token #${token.tokenNumber} - Pending Approval'),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                const Chip(
-                  label: Text('Pending Admin Approval'),
-                  backgroundColor: Colors.orange,
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Your request is pending approval. You will be notified once approved.',
-                  style: TextStyle(fontSize: 12),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('OK'),
               ),
             ],
           ),
-        );
-      }
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      // Also show dialog for more details
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          icon: const Icon(Icons.check_circle, color: Colors.green, size: 48),
+          title: const Text('Token Requested!'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Token Number: ${token.tokenNumber}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade100,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Text(
+                  'Pending Admin Approval',
+                  style: TextStyle(
+                    color: Colors.orange,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Your request has been sent to admin. You will be notified once approved.',
+                style: TextStyle(fontSize: 13),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
     } catch (e) {
-      if (context.mounted) {
-        Navigator.of(context).pop(); // Close loading
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error requesting token: $e')),
-        );
-      }
+      if (!context.mounted) return;
+      
+      // Make sure to close loading dialog if it's open
+      Navigator.of(context, rootNavigator: true).pop();
+
+      // Show error
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.error, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text('Error: ${e.toString().replaceAll('Exception: ', '')}'),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 }

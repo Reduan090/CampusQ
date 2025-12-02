@@ -34,7 +34,8 @@ class AuthService extends ChangeNotifier {
     try {
       // Try Firebase Auth first
       final auth = FirebaseAuth.instance;
-      UserCredential cred;
+      UserCredential? cred;
+      
       try {
         cred = await auth.signInWithEmailAndPassword(email: email, password: password);
       } on FirebaseAuthException catch (e) {
@@ -53,40 +54,76 @@ class AuthService extends ChangeNotifier {
           cred = await auth.createUserWithEmailAndPassword(email: email, password: password);
           
           // Update Firestore user with uid
-          await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).update({
+          final firstDoc = existingUsers.docs.first;
+          await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).set({
+            ...firstDoc.data(),
             'uid': cred.user!.uid,
           });
+          await FirebaseFirestore.instance.collection('users').doc(firstDoc.id).delete();
         } else if (e.code == 'wrong-password') {
-          rethrow;
+          throw Exception('Incorrect password. Please try again.');
+        } else if (e.code == 'invalid-email') {
+          throw Exception('Invalid email format.');
         } else {
-          // Fallback to local if Firebase not configured
-          throw Exception('Firebase not ready');
+          // Fallback to local auth if Firebase not configured properly
+          debugPrint('Firebase error: ${e.code} - ${e.message}');
+          cred = null; // Explicitly set to null to trigger local auth
         }
       }
 
-      // Read user data from Firestore
-      final snap = await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).get();
-      final userData = snap.data();
+      // If Firebase auth succeeded, process Firestore data
+      if (cred != null) {
+        // Read user data from Firestore
+        final snap = await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).get();
+        final userData = snap.data();
+        
+        if (userData == null) {
+          // Create user document if it doesn't exist
+          await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).set({
+            'uid': cred.user!.uid,
+            'email': email,
+            'role': role.name,
+            'isActive': true,
+            'createdAt': DateTime.now().toIso8601String(),
+          });
+          
+          _email = email;
+          _role = role;
+          _loggedIn = true;
+        } else {
+          final isActive = userData['isActive'] as bool? ?? true;
+          if (!isActive) {
+            await auth.signOut();
+            throw Exception('Your account has been deactivated. Please contact admin.');
+          }
+
+          final roleStr = userData['role'] as String? ?? role.name;
+          _email = email;
+          _role = roleStr == 'admin' ? UserRole.admin : UserRole.student;
+          _loggedIn = true;
+        }
+        
+        // Save to SharedPreferences for persistence
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool(_keyLoggedIn, true);
+        await prefs.setString(_keyEmail, email);
+        await prefs.setString(_keyRole, _role.name);
+      } else {
+        // Firebase not available, trigger local auth fallback
+        throw Exception('Firebase unavailable');
+      }
       
-      if (userData == null) {
-        throw Exception('User data not found');
-      }
-
-      final isActive = userData['isActive'] as bool? ?? true;
-      if (!isActive) {
-        await auth.signOut();
-        throw Exception('Your account has been deactivated. Please contact admin.');
-      }
-
-      final roleStr = userData['role'] as String? ?? role.name;
-      _email = email;
-      _role = roleStr == 'admin' ? UserRole.admin : UserRole.student;
-      _loggedIn = true;
     } catch (e) {
       // If it's our custom error, rethrow
-      if (e is Exception) rethrow;
+      if (e.toString().contains('No account found') || 
+          e.toString().contains('deactivated') ||
+          e.toString().contains('Incorrect password') ||
+          e.toString().contains('Invalid email')) {
+        rethrow;
+      }
       
-      // Local auth fallback
+      // Local auth fallback for demo purposes
+      debugPrint('Falling back to local auth: $e');
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_keyLoggedIn, true);
       await prefs.setString(_keyEmail, email);
