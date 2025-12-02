@@ -66,16 +66,55 @@ class _BootstrapState extends State<_Bootstrap> {
       await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
       setState(() => _firebaseReady = true);
     } catch (e) {
-      // If options not configured yet, continue app without Firebase
+      // Firebase is required for this app
       setState(() => _firebaseError = e.toString());
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!_firebaseReady && _firebaseError == null) {
+    if (_firebaseError != null) {
+      return Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                const SizedBox(height: 16),
+                const Text(
+                  'Firebase Connection Failed',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _firebaseError!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.grey),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      _firebaseError = null;
+                      _firebaseReady = false;
+                    });
+                    _initFirebase();
+                  },
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    
+    if (!_firebaseReady) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+    
     return MultiProvider(
       providers: [
         // Replace TokenService with Firestore-backed instance when Firebase is ready
@@ -83,7 +122,6 @@ class _BootstrapState extends State<_Bootstrap> {
           create: (_) => TokenService(
             useFirestore: _firebaseReady,
             firestore: _firebaseReady ? FirebaseFirestore.instance : null,
-            userId: FirebaseAuth.instance.currentUser?.uid,
           ),
         ),
         ChangeNotifierProvider(
@@ -119,6 +157,15 @@ class _RootRouter extends StatelessWidget {
     if (!auth.isLoggedIn) {
       return const LoginScreen();
     }
+
+    // Reinitialize TokenService listener when user logs in
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      try {
+        context.read<TokenService>().reinitializeListener();
+      } catch (e) {
+        // Service might not be available yet
+      }
+    });
 
     return auth.role == UserRole.admin ? const AdminHomeScreen() : const HomeScreen();
   }

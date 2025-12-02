@@ -1,8 +1,6 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
-    
     // ============================================
     // HELPER FUNCTIONS
     // ============================================
@@ -11,89 +9,122 @@ service cloud.firestore {
     function isSignedIn() {
       return request.auth != null;
     }
-    
+
     // Get current user's document
     function callerDoc() {
       return isSignedIn()
         ? get(/databases/$(database)/documents/users/$(request.auth.uid))
         : null;
     }
-    
+
     // Check if current user is admin
     function isAdmin() {
       return isSignedIn() && callerDoc().data.role == 'admin';
     }
-    
+
     // Check if current user is active (or has no isActive field - defaults to true)
     function isActiveUser() {
       return isSignedIn() && (callerDoc().data.isActive == true || !('isActive' in callerDoc().data));
     }
-    
+
     // Check if user owns the resource
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
-    
+
     // ============================================
     // USERS COLLECTION
     // ============================================
-    match /users/{userId} {
+    match /users/{uid} {
       // Anyone authenticated can read user data
       allow read: if isSignedIn();
-      
+
       // Users can create their own profile; admins can create any
-      allow create: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
-      
+      allow create: if isSignedIn() && (uid == request.auth.uid || isAdmin());
+
       // Users can update their own profile (except role and isActive)
       // Admins can update any user
-      allow update: if isAdmin() || 
-                      (isOwner(userId) && 
-                       request.resource.data.role == resource.data.role &&
-                       (!('isActive' in request.resource.data) || request.resource.data.isActive == resource.data.isActive));
-      
+      allow update: if isSignedIn() && (
+        isAdmin() ||
+        (uid == request.auth.uid && 
+         request.resource.data.role == resource.data.role &&
+         (!('isActive' in request.resource.data) || request.resource.data.isActive == resource.data.isActive))
+      );
+
       // Only admins can delete users
       allow delete: if isAdmin();
     }
-    
+
     // ============================================
     // TOKENS COLLECTION
     // ============================================
     match /tokens/{tokenId} {
       // Anyone authenticated can read all tokens
       allow read: if isSignedIn();
-      
+
       // Active users can create their own pending tokens
-      allow create: if isActiveUser() && 
-                      request.resource.data.userId == request.auth.uid &&
-                      request.resource.data.status == 'pending';
-      
-      // Users can update their own pending tokens (cancel)
-      // Admins can update any token (approve, reject, complete)
-      allow update: if isAdmin() || 
-                      (isOwner(resource.data.userId) && 
-                       resource.data.status == 'pending' &&
-                       request.resource.data.status in ['expired', 'pending']);
-      
+      allow create: if isActiveUser()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'pending';
+
+      // Admins can update any token
+      // Users can cancel their own pending tokens
+      allow update: if isSignedIn() && (
+        isAdmin() ||
+        (
+          resource.data.userId == request.auth.uid &&
+          resource.data.status == 'pending' &&
+          request.resource.data.status in ['expired', 'pending']
+        )
+      );
+
       // Only admins can delete tokens
       allow delete: if isAdmin();
     }
-    
+
     // ============================================
     // NOTICES COLLECTION
     // ============================================
     match /notices/{noticeId} {
-      // Anyone authenticated can read all notices
-      // App layer handles filtering active vs inactive for regular users
+      // Anyone authenticated can read notices
+      // (App layer handles filtering active vs inactive)
       allow read: if isSignedIn();
-      
+
       // Only admins can create notices
       allow create: if isAdmin();
-      
+
       // Only admins can update notices
       allow update: if isAdmin();
-      
+
       // Only admins can delete notices
       allow delete: if isAdmin();
     }
   }
 }
+
+// ============================================
+// DEPLOYMENT NOTES
+// ============================================
+// 1. Deploy these rules using Firebase Console or Firebase CLI:
+//    firebase deploy --only firestore:rules
+//
+// 2. Collection names must match app code: 'users', 'tokens', 'notices'
+//
+// 3. Admin determination: user document must have role == 'admin'
+//
+// 4. Security considerations:
+//    - All operations require authentication
+//    - Regular users can view all data but cannot modify others' data
+//    - Only admins can create/update/delete notices
+//    - Users can only create tokens for themselves
+//    - Active users (isActive == true) can request tokens
+//
+// 5. Notice visibility:
+//    - All authenticated users can read notices collection
+//    - App layer filters by isActive flag for regular users
+//    - Admins see all notices (active and inactive)
+//
+// 6. Testing:
+//    - Test with admin user: should be able to create/edit/delete notices
+//    - Test with regular user: should be able to read notices but not modify
+//    - Verify token creation works for active users only

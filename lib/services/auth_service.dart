@@ -30,7 +30,7 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> signIn({required String email, required String password, required UserRole role}) async {
+  Future<void> signIn({required String email, required String password, UserRole role = UserRole.student}) async {
     try {
       // Try Firebase Auth first
       final auth = FirebaseAuth.instance;
@@ -73,35 +73,137 @@ class AuthService extends ChangeNotifier {
 
       // If Firebase auth succeeded, process Firestore data
       if (cred != null) {
+        debugPrint('🔍 Checking Firestore for UID: ${cred.user!.uid}');
+        debugPrint('🔍 Email: $email');
+        
         // Read user data from Firestore
         final snap = await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).get();
         final userData = snap.data();
         
         if (userData == null) {
-          // Create user document if it doesn't exist
-          await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).set({
-            'uid': cred.user!.uid,
-            'email': email,
-            'role': role.name,
-            'isActive': true,
-            'createdAt': DateTime.now().toIso8601String(),
-          });
+          debugPrint('⚠️ No document found with UID as document ID');
+          debugPrint('🔍 Searching by email: $email');
           
-          _email = email;
-          _role = role;
-          _loggedIn = true;
-        } else {
-          final isActive = userData['isActive'] as bool? ?? true;
+          // Try to find user by email in case document ID doesn't match UID
+          final usersByEmail = await FirebaseFirestore.instance
+              .collection('users')
+              .where('email', isEqualTo: email)
+              .limit(1)
+              .get();
+          
+          debugPrint('📊 Found ${usersByEmail.docs.length} documents with email: $email');
+          
+          if (usersByEmail.docs.isNotEmpty) {
+            // Found user document with matching email but wrong ID
+            // Update the document to use correct UID as document ID
+            final oldDoc = usersByEmail.docs.first;
+            final oldData = oldDoc.data();
+            
+            debugPrint('✅ Found user document with ID: ${oldDoc.id}');
+            debugPrint('🔧 Fixing document ID to match Auth UID: ${cred.user!.uid}');
+            
+            // Create new document with correct UID and ensure all required fields
+            await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).set({
+              'uid': cred.user!.uid,
+              'email': email,
+              'role': oldData['role'] ?? 'student',
+              'isActive': oldData['isActive'] ?? true,
+              'name': oldData['name'] ?? email.split('@')[0],
+              'studentId': oldData['studentId'] ?? 'N/A',
+              'department': oldData['department'] ?? 'N/A',
+              'bloodGroup': oldData['bloodGroup'] ?? 'N/A',
+              'pictureUrl': oldData['pictureUrl'],
+              'createdAt': oldData['createdAt'] ?? DateTime.now().toIso8601String(),
+            });
+            
+            // Delete old document
+            await oldDoc.reference.delete();
+            
+            debugPrint('✅ Successfully fixed user document ID');
+          } else {
+            // No document found at all: auto-create minimal profile
+            debugPrint('🆕 Creating minimal user profile document for UID: ${cred.user!.uid}');
+            await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).set({
+              'uid': cred.user!.uid,
+              'email': email,
+              'role': role.name,
+              'isActive': true,
+              'name': email.split('@')[0],
+              'studentId': 'N/A',
+              'department': 'N/A',
+              'bloodGroup': 'N/A',
+              'pictureUrl': null,
+              'createdAt': DateTime.now().toIso8601String(),
+            });
+            debugPrint('✅ Minimal user profile created');
+          }
+
+          // Re-read the corrected/created document
+          final newSnap = await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).get();
+          final newUserData = newSnap.data()!;
+          
+          final isActive = newUserData['isActive'] as bool? ?? true;
           if (!isActive) {
             await auth.signOut();
             throw Exception('Your account has been deactivated. Please contact admin.');
           }
 
-          final roleStr = userData['role'] as String? ?? role.name;
+          final roleStr = newUserData['role'] as String? ?? role.name;
           _email = email;
           _role = roleStr == 'admin' ? UserRole.admin : UserRole.student;
           _loggedIn = true;
+          
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool(_keyLoggedIn, true);
+          await prefs.setString(_keyEmail, email);
+          await prefs.setString(_keyRole, _role.name);
+          
+          debugPrint('✅ User logged in successfully as ${_role.name}');
+          notifyListeners();
+          return;
         }
+        
+        // Accept minimal documents (e.g., only role present). Fill safe defaults if missing.
+        final isActive = (userData['isActive'] as bool?) ?? true;
+        final roleStr = (userData['role'] as String?) ?? role.name;
+        final name = (userData['name'] as String?) ?? email.split('@').first;
+        final studentId = (userData['studentId'] as String?) ?? 'N/A';
+        final department = (userData['department'] as String?) ?? 'N/A';
+        final bloodGroup = (userData['bloodGroup'] as String?) ?? 'N/A';
+        final pictureUrl = userData['pictureUrl'];
+        final createdAt = (userData['createdAt'] as String?) ?? DateTime.now().toIso8601String();
+        if (!isActive) {
+          await auth.signOut();
+          throw Exception('Your account has been deactivated. Please contact admin.');
+        }
+
+        // If any profile fields are missing, silently backfill them
+        final needsUpdate = userData['uid'] == null ||
+            userData['email'] == null ||
+            userData['name'] == null ||
+            userData['studentId'] == null ||
+            userData['department'] == null ||
+            userData['bloodGroup'] == null ||
+            userData['createdAt'] == null;
+
+        if (needsUpdate) {
+          await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).set({
+            'uid': cred.user!.uid,
+            'email': email,
+            'role': roleStr,
+            'isActive': isActive,
+            'name': name,
+            'studentId': studentId,
+            'department': department,
+            'bloodGroup': bloodGroup,
+            'pictureUrl': pictureUrl,
+            'createdAt': createdAt,
+          }, SetOptions(merge: true));
+        }
+
+        _email = email;
+        _role = roleStr == 'admin' ? UserRole.admin : UserRole.student;
+        _loggedIn = true;
         
         // Save to SharedPreferences for persistence
         final prefs = await SharedPreferences.getInstance();
@@ -109,40 +211,11 @@ class AuthService extends ChangeNotifier {
         await prefs.setString(_keyEmail, email);
         await prefs.setString(_keyRole, _role.name);
       } else {
-        // Firebase not available, trigger local auth fallback
-        throw Exception('Firebase unavailable');
+        throw Exception('Authentication failed. Please try again.');
       }
-      
     } catch (e) {
-      // If it's our custom error, rethrow
-      if (e.toString().contains('No account found') || 
-          e.toString().contains('deactivated') ||
-          e.toString().contains('Incorrect password') ||
-          e.toString().contains('Invalid email')) {
-        rethrow;
-      }
-      
-      // Local auth fallback for demo purposes
-      debugPrint('Falling back to local auth: $e');
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_keyLoggedIn, true);
-      await prefs.setString(_keyEmail, email);
-      await prefs.setString(_keyRole, role.name);
-      _loggedIn = true;
-      _email = email;
-      _role = role;
+      rethrow;
     }
-    notifyListeners();
-  }
-
-  Future<void> continueAsGuest(UserRole role) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyLoggedIn, true);
-    await prefs.setString(_keyEmail, 'guest@local');
-    await prefs.setString(_keyRole, role.name);
-    _loggedIn = true;
-    _email = 'guest@local';
-    _role = role;
     notifyListeners();
   }
 
@@ -155,5 +228,62 @@ class AuthService extends ChangeNotifier {
     _email = null;
     _role = UserRole.student;
     notifyListeners();
+  }
+
+  Future<void> signUp(String email, String password, {
+    UserRole role = UserRole.student,
+    String? name,
+    String? studentId,
+    String? department,
+    String? bloodGroup,
+    String? contactNumber,
+    String? gender,
+    String? country,
+    String? picturePath,
+  }) async {
+    try {
+      final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(email: email, password: password);
+      final uid = cred.user!.uid;
+      debugPrint('🆕 Firebase user created: $uid');
+
+      // Create initial user profile in Firestore
+      await FirebaseFirestore.instance.collection('users').doc(uid).set({
+        'uid': uid,
+        'email': email,
+        'role': role.name,
+        'isActive': true,
+        'name': name ?? email.split('@')[0],
+        'studentId': studentId ?? 'N/A',
+        'department': department ?? 'N/A',
+        'bloodGroup': bloodGroup ?? 'N/A',
+        'contactNumber': contactNumber ?? 'N/A',
+        'gender': gender ?? 'N/A',
+        'country': country ?? 'N/A',
+        'picturePath': picturePath,
+        'createdAt': DateTime.now().toIso8601String(),
+        'updatedAt': DateTime.now().toIso8601String(),
+      });
+      debugPrint('✅ Firestore user profile created: users/$uid');
+
+      // Persist session
+      _email = email;
+      _role = role;
+      _loggedIn = true;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_keyLoggedIn, true);
+      await prefs.setString(_keyEmail, email);
+      await prefs.setString(_keyRole, _role.name);
+      notifyListeners();
+    } on FirebaseAuthException catch (e) {
+      String msg = 'Sign up failed';
+      if (e.code == 'weak-password') msg = 'Password is too weak';
+      if (e.code == 'email-already-in-use') msg = 'Email already in use';
+      if (e.code == 'invalid-email') msg = 'Invalid email address';
+      debugPrint('❌ SignUp error: ${e.code} - ${e.message}');
+      throw Exception(msg);
+    } catch (e) {
+      debugPrint('❌ SignUp unexpected error: $e');
+      throw Exception('Unexpected error during sign up');
+    }
   }
 }

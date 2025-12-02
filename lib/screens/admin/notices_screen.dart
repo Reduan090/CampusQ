@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../../services/notice_service.dart';
-import '../../../models/notice.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../../services/notice_service.dart';
+import '../../models/notice.dart';
 
 class AdminNoticesScreen extends StatelessWidget {
   const AdminNoticesScreen({super.key});
@@ -143,63 +144,159 @@ class AdminNoticesScreen extends StatelessWidget {
   }
 
   void _showCreateNoticeDialog(BuildContext context) {
+    final formKey = GlobalKey<FormState>();
     final titleController = TextEditingController();
     final contentController = TextEditingController();
+    
+    // Capture the NoticeService before showing dialog
+    final noticeService = context.read<NoticeService>();
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Create Notice'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
+      builder: (dialogContext) => AlertDialog(
+        title: Row(
           children: [
-            TextField(
-              controller: titleController,
-              decoration: const InputDecoration(
-                labelText: 'Title',
-                hintText: 'Notice title',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: contentController,
-              decoration: const InputDecoration(
-                labelText: 'Content',
-                hintText: 'Notice content',
-              ),
-              maxLines: 4,
-            ),
+            const Icon(Icons.campaign, color: Colors.purple),
+            const SizedBox(width: 12),
+            const Text('Create New Notice'),
           ],
+        ),
+        content: SizedBox(
+          width: 500,
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Compose a notice to send to all users:',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 20),
+                TextFormField(
+                  controller: titleController,
+                  decoration: const InputDecoration(
+                    labelText: 'Notice Title *',
+                    hintText: 'Enter a clear and concise title',
+                    prefixIcon: Icon(Icons.title),
+                    border: OutlineInputBorder(),
+                    helperText: 'Max 100 characters',
+                  ),
+                  maxLength: 100,
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Title is required';
+                    }
+                    if (value.trim().length < 3) {
+                      return 'Title must be at least 3 characters';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: contentController,
+                  decoration: const InputDecoration(
+                    labelText: 'Notice Content *',
+                    hintText: 'Write the full notice content here...',
+                    prefixIcon: Icon(Icons.description),
+                    border: OutlineInputBorder(),
+                    alignLabelWithHint: true,
+                    helperText: 'Provide clear and detailed information',
+                  ),
+                  maxLines: 6,
+                  maxLength: 1000,
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Content is required';
+                    }
+                    if (value.trim().length < 10) {
+                      return 'Content must be at least 10 characters';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, size: 16, color: Colors.blue.shade700),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'This notice will be visible to all users once created',
+                          style: TextStyle(fontSize: 11, color: Colors.blue.shade900),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
-          ElevatedButton(
+          ElevatedButton.icon(
             onPressed: () async {
-              if (titleController.text.isEmpty || contentController.text.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Please fill all fields')),
-                );
+              if (!formKey.currentState!.validate()) {
                 return;
               }
 
-              final noticeService = context.read<NoticeService>();
-              await noticeService.createNotice(
-                title: titleController.text,
-                content: contentController.text,
-                createdBy: 'admin',
-              );
-
-              if (context.mounted) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Notice created')),
+              try {
+                final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? 'admin';
+                await noticeService.createNotice(
+                  title: titleController.text.trim(),
+                  content: contentController.text.trim(),
+                  createdBy: currentUserId,
                 );
+
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Row(
+                        children: [
+                          const Icon(Icons.check_circle, color: Colors.white),
+                          const SizedBox(width: 8),
+                          const Text('Notice sent successfully'),
+                        ],
+                      ),
+                      backgroundColor: Colors.green,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Row(
+                        children: [
+                          const Icon(Icons.error, color: Colors.white),
+                          const SizedBox(width: 8),
+                          Text('Error sending notice: $e'),
+                        ],
+                      ),
+                      backgroundColor: Colors.red,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
               }
             },
-            child: const Text('Create'),
+            icon: const Icon(Icons.send),
+            label: const Text('Send Notice'),
           ),
         ],
       ),
@@ -207,49 +304,119 @@ class AdminNoticesScreen extends StatelessWidget {
   }
 
   void _showEditNoticeDialog(BuildContext context, NoticeService service, Notice notice) {
+    final formKey = GlobalKey<FormState>();
     final titleController = TextEditingController(text: notice.title);
     final contentController = TextEditingController(text: notice.content);
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Edit Notice'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
+      builder: (dialogContext) => AlertDialog(
+        title: Row(
           children: [
-            TextField(
-              controller: titleController,
-              decoration: const InputDecoration(labelText: 'Title'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: contentController,
-              decoration: const InputDecoration(labelText: 'Content'),
-              maxLines: 4,
-            ),
+            const Icon(Icons.edit, color: Colors.blue),
+            const SizedBox(width: 12),
+            const Text('Edit Notice'),
           ],
+        ),
+        content: SizedBox(
+          width: 500,
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: titleController,
+                  decoration: const InputDecoration(
+                    labelText: 'Title *',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.title),
+                  ),
+                  maxLength: 100,
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Title is required';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: contentController,
+                  decoration: const InputDecoration(
+                    labelText: 'Content *',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.description),
+                    alignLabelWithHint: true,
+                  ),
+                  maxLines: 6,
+                  maxLength: 1000,
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Content is required';
+                    }
+                    return null;
+                  },
+                ),
+              ],
+            ),
+          ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
-          ElevatedButton(
+          ElevatedButton.icon(
             onPressed: () async {
-              await service.updateNotice(
-                notice.id,
-                title: titleController.text,
-                content: contentController.text,
-              );
+              if (!formKey.currentState!.validate()) {
+                return;
+              }
 
-              if (context.mounted) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Notice updated')),
+              try {
+                await service.updateNotice(
+                  notice.id,
+                  title: titleController.text.trim(),
+                  content: contentController.text.trim(),
                 );
+
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Row(
+                        children: [
+                          Icon(Icons.check_circle, color: Colors.white),
+                          SizedBox(width: 8),
+                          Text('Notice updated successfully'),
+                        ],
+                      ),
+                      backgroundColor: Colors.green,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Row(
+                        children: [
+                          const Icon(Icons.error, color: Colors.white),
+                          const SizedBox(width: 8),
+                          Text('Error updating notice: $e'),
+                        ],
+                      ),
+                      backgroundColor: Colors.red,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
               }
             },
-            child: const Text('Save'),
+            icon: const Icon(Icons.save),
+            label: const Text('Save Changes'),
           ),
         ],
       ),
@@ -259,19 +426,19 @@ class AdminNoticesScreen extends StatelessWidget {
   void _showDeleteDialog(BuildContext context, NoticeService service, Notice notice) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Delete Notice'),
         content: const Text('Are you sure you want to delete this notice?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () async {
               await service.deleteNotice(notice.id);
-              if (context.mounted) {
-                Navigator.pop(context);
+              if (dialogContext.mounted) {
+                Navigator.pop(dialogContext);
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Notice deleted')),
                 );

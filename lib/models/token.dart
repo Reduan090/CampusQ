@@ -12,6 +12,8 @@ class Token {
   final String? message;
   DateTime? activatedAt;
   DateTime? completedAt;
+  final String? approvalMessage;
+  final DateTime? validUntil;
 
   Token({
     required this.id,
@@ -24,6 +26,8 @@ class Token {
     this.message,
     this.activatedAt,
     this.completedAt,
+    this.approvalMessage,
+    this.validUntil,
   });
 
   int get estimatedWaitMinutes {
@@ -50,6 +54,8 @@ class Token {
     String? message,
     DateTime? activatedAt,
     DateTime? completedAt,
+    String? approvalMessage,
+    DateTime? validUntil,
   }) {
     return Token(
       id: id ?? this.id,
@@ -62,6 +68,8 @@ class Token {
       message: message ?? this.message,
       activatedAt: activatedAt ?? this.activatedAt,
       completedAt: completedAt ?? this.completedAt,
+      approvalMessage: approvalMessage ?? this.approvalMessage,
+      validUntil: validUntil ?? this.validUntil,
     );
   }
 }

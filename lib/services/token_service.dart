@@ -13,13 +13,11 @@ class TokenService extends ChangeNotifier {
   Timer? _queueUpdateTimer;
   final bool _useFirestore;
   final FirebaseFirestore? _firestore;
-  final String? _userId;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _tokensSub;
 
-  TokenService({bool useFirestore = false, FirebaseFirestore? firestore, String? userId})
+  TokenService({bool useFirestore = false, FirebaseFirestore? firestore})
       : _useFirestore = useFirestore,
-        _firestore = firestore,
-        _userId = userId {
+        _firestore = firestore {
     if (_useFirestore && _firestore != null) {
       _listenToFirestore();
     } else {
@@ -60,7 +58,8 @@ class TokenService extends ChangeNotifier {
   Future<Token> requestToken(TokenType type, {String? message}) async {
     await Future.delayed(const Duration(milliseconds: 300));
 
-    final userId = _userId ?? FirebaseAuth.instance.currentUser?.uid ?? 'guest';
+    // Always get current user at time of request
+    final userId = FirebaseAuth.instance.currentUser?.uid ?? 'guest';
 
     if (_useFirestore && _firestore != null) {
       try {
@@ -132,16 +131,28 @@ class TokenService extends ChangeNotifier {
     return token;
   }
 
-  Future<void> approveToken(String tokenId) async {
+  Future<void> approveToken(String tokenId, {String? approvalMessage, DateTime? validUntil}) async {
     if (_useFirestore && _firestore != null) {
       try {
-        await _firestore!.collection('tokens').doc(tokenId).update({
+        final updates = {
           'status': TokenStatus.approved.name,
-        }).timeout(const Duration(seconds: 5));
+        };
+        if (approvalMessage != null) {
+          updates['approvalMessage'] = approvalMessage;
+        }
+        if (validUntil != null) {
+          updates['validUntil'] = validUntil.toIso8601String();
+        }
+        await _firestore!.collection('tokens').doc(tokenId).update(updates).timeout(const Duration(seconds: 5));
         // Update local cache
         final token = getTokenById(tokenId);
         if (token != null) {
-          token.status = TokenStatus.approved;
+          final updatedToken = token.copyWith(
+            status: TokenStatus.approved,
+            approvalMessage: approvalMessage,
+            validUntil: validUntil,
+          );
+          _allTokens[_allTokens.indexOf(token)] = updatedToken;
           notifyListeners();
         }
         return;
@@ -152,7 +163,12 @@ class TokenService extends ChangeNotifier {
     }
     final token = getTokenById(tokenId);
     if (token != null) {
-      token.status = TokenStatus.approved;
+      final updatedToken = token.copyWith(
+        status: TokenStatus.approved,
+        approvalMessage: approvalMessage,
+        validUntil: validUntil,
+      );
+      _allTokens[_allTokens.indexOf(token)] = updatedToken;
       notifyListeners();
     }
   }
@@ -301,10 +317,20 @@ class TokenService extends ChangeNotifier {
     });
   }
 
+  void reinitializeListener() {
+    _tokensSub?.cancel();
+    if (_useFirestore && _firestore != null) {
+      _listenToFirestore();
+    }
+  }
+
   void _listenToFirestore() {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null) return;
+    
     _tokensSub = _firestore!
         .collection('tokens')
-        .where('userId', isEqualTo: _userId ?? FirebaseAuth.instance.currentUser?.uid)
+        .where('userId', isEqualTo: currentUserId)
         .snapshots()
         .listen((snapshot) {
       _allTokens.clear();
