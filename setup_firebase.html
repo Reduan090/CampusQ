@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>CampusQ Firebase Setup</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 800px;
+            width: 100%;
+            padding: 40px;
+        }
+        h1 {
+            color: #2F4F6B;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            background: #f5f5f5;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .log-line {
+            padding: 4px 0;
+            white-space: pre-wrap;
+        }
+        .success { color: #22c55e; }
+        .error { color: #ef4444; }
+        .info { color: #3b82f6; }
+        .warning { color: #f59e0b; }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: transform 0.2s;
+        }
+        button:hover { transform: translateY(-2px); }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .credentials {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f0f9ff;
+            border-radius: 8px;
+            border-left: 4px solid #3b82f6;
+        }
+        .credentials h3 {
+            color: #2F4F6B;
+            margin-bottom: 15px;
+        }
+        .cred-item {
+            margin-bottom: 12px;
+            padding: 8px;
+            background: white;
+            border-radius: 4px;
+        }
+        .cred-label {
+            font-weight: 600;
+            color: #666;
+            font-size: 14px;
+        }
+        .cred-value {
+            color: #2F4F6B;
+            font-family: monospace;
+            margin-left: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 CampusQ Firebase Setup</h1>
+        <p class="subtitle">Initialize your Firebase database with admin, users, and sample data</p>
+        
+        <div class="status" id="status">
+            <div class="log-line info">Ready to set up Firebase database...</div>
+            <div class="log-line info">Click the button below to start</div>
+        </div>
+        
+        <button id="setupBtn" onclick="setupFirebase()">Start Firebase Setup</button>
+        
+        <div class="credentials" id="credentials" style="display: none;">
+            <h3>✅ Login Credentials</h3>
+            <div class="cred-item">
+                <span class="cred-label">👤 Admin:</span>
+                <span class="cred-value">admin@campusq.com / admin123</span>
+            </div>
+            <div class="cred-item">
+                <span class="cred-label">👥 Student 1:</span>
+                <span class="cred-value">john.doe@student.campusq.com / student123</span>
+            </div>
+            <div class="cred-item">
+                <span class="cred-label">👥 Student 2:</span>
+                <span class="cred-value">jane.smith@student.campusq.com / student123</span>
+            </div>
+            <div class="cred-item">
+                <span class="cred-label">👥 Student 3:</span>
+                <span class="cred-value">mike.johnson@student.campusq.com / student123</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+
+    <script>
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyABuQR6WJ_D5KKoIU3JJeq8yZ5DsE9OphQ",
+            authDomain: "campusq-d754c.firebaseapp.com",
+            projectId: "campusq-d754c",
+            storageBucket: "campusq-d754c.firebasestorage.app",
+            messagingSenderId: "8574803772",
+            appId: "1:8574803772:web:b70bb7639b4ce43539c839",
+            measurementId: "G-MDGP299PPQ"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        function log(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            const line = document.createElement('div');
+            line.className = `log-line ${type}`;
+            line.textContent = message;
+            statusDiv.appendChild(line);
+            statusDiv.scrollTop = statusDiv.scrollHeight;
+        }
+
+        async function setupFirebase() {
+            const btn = document.getElementById('setupBtn');
+            btn.disabled = true;
+            btn.textContent = 'Setting up...';
+            
+            document.getElementById('status').innerHTML = '';
+            log('🚀 Starting Firebase setup...', 'info');
+
+            try {
+                // Step 1: Create Admin
+                log('\n👤 Creating admin user...', 'info');
+                let adminUid;
+                try {
+                    const adminCred = await auth.createUserWithEmailAndPassword(
+                        'admin@campusq.com',
+                        'admin123'
+                    );
+                    adminUid = adminCred.user.uid;
+                    log('✅ Admin account created: admin@campusq.com', 'success');
+                } catch (e) {
+                    if (e.code === 'auth/email-already-in-use') {
+                        log('ℹ️  Admin account already exists', 'warning');
+                        const adminCred = await auth.signInWithEmailAndPassword(
+                            'admin@campusq.com',
+                            'admin123'
+                        );
+                        adminUid = adminCred.user.uid;
+                    } else {
+                        throw e;
+                    }
+                }
+
+                // Create admin document
+                await db.collection('users').doc(adminUid).set({
+                    uid: adminUid,
+                    email: 'admin@campusq.com',
+                    role: 'admin',
+                    isActive: true,
+                    name: 'System Administrator',
+                    studentId: 'ADMIN001',
+                    department: 'IT Department',
+                    bloodGroup: 'O+',
+                    pictureUrl: null,
+                    createdAt: new Date().toISOString()
+                });
+                log('✅ Admin user document created', 'success');
+
+                // Step 2: Create Students
+                log('\n👥 Creating sample student users...', 'info');
+                const students = [
+                    {
+                        email: 'john.doe@student.campusq.com',
+                        password: 'student123',
+                        name: 'John Doe',
+                        studentId: 'CSE2021001',
+                        department: 'Computer Science',
+                        bloodGroup: 'A+'
+                    },
+                    {
+                        email: 'jane.smith@student.campusq.com',
+                        password: 'student123',
+                        name: 'Jane Smith',
+                        studentId: 'EEE2021002',
+                        department: 'Electrical Engineering',
+                        bloodGroup: 'B+'
+                    },
+                    {
+                        email: 'mike.johnson@student.campusq.com',
+                        password: 'student123',
+                        name: 'Mike Johnson',
+                        studentId: 'ME2021003',
+                        department: 'Mechanical Engineering',
+                        bloodGroup: 'O-'
+                    },
+                    {
+                        email: 'sarah.williams@student.campusq.com',
+                        password: 'student123',
+                        name: 'Sarah Williams',
+                        studentId: 'BBA2021004',
+                        department: 'Business Administration',
+                        bloodGroup: 'AB+'
+                    },
+                    {
+                        email: 'david.brown@student.campusq.com',
+                        password: 'student123',
+                        name: 'David Brown',
+                        studentId: 'CSE2021005',
+                        department: 'Computer Science',
+                        bloodGroup: 'A-'
+                    }
+                ];
+
+                const studentUids = [];
+                for (const student of students) {
+                    try {
+                        const userCred = await auth.createUserWithEmailAndPassword(
+                            student.email,
+                            student.password
+                        );
+
+                        await db.collection('users').doc(userCred.user.uid).set({
+                            uid: userCred.user.uid,
+                            email: student.email,
+                            role: 'student',
+                            isActive: true,
+                            name: student.name,
+                            studentId: student.studentId,
+                            department: student.department,
+                            bloodGroup: student.bloodGroup,
+                            pictureUrl: null,
+                            createdAt: new Date().toISOString()
+                        });
+
+                        studentUids.push(userCred.user.uid);
+                        log(`✅ Created: ${student.name}`, 'success');
+                    } catch (e) {
+                        if (e.code === 'auth/email-already-in-use') {
+                            log(`ℹ️  User already exists: ${student.email}`, 'warning');
+                        } else {
+                            log(`❌ Error creating ${student.name}: ${e.message}`, 'error');
+                        }
+                    }
+                }
+
+                // Step 3: Create Notices
+                log('\n📢 Creating sample notices...', 'info');
+                const notices = [
+                    {
+                        title: 'Welcome to CampusQ!',
+                        content: 'Welcome to the new Virtual Token System. Request tokens for various campus services easily and track your queue position in real-time.',
+                        isActive: true
+                    },
+                    {
+                        title: 'System Maintenance Schedule',
+                        content: 'The cafeteria token system will be under maintenance on December 15, 2025 from 2 PM to 4 PM.',
+                        isActive: true
+                    },
+                    {
+                        title: 'New Feature: Profile Management',
+                        content: 'Students can now update their profile information from the Profile tab.',
+                        isActive: true
+                    },
+                    {
+                        title: 'Token Request Guidelines',
+                        content: 'Please add a clear message when requesting tokens to help administrators process requests faster.',
+                        isActive: true
+                    }
+                ];
+
+                for (const notice of notices) {
+                    const docRef = await db.collection('notices').add({
+                        ...notice,
+                        createdBy: adminUid,
+                        createdAt: new Date().toISOString()
+                    });
+                    await docRef.update({ id: docRef.id });
+                    log(`✅ Notice: ${notice.title}`, 'success');
+                }
+
+                // Step 4: Create Sample Tokens
+                log('\n🎫 Creating sample tokens...', 'info');
+                if (studentUids.length > 0) {
+                    const tokenTypes = ['cafeteria', 'library', 'transport', 'counseling'];
+                    const statuses = ['pending', 'approved', 'waiting', 'completed'];
+                    
+                    for (let i = 0; i < Math.min(2, studentUids.length); i++) {
+                        for (let j = 0; j < 2; j++) {
+                            const tokenNum = (i * 2 + j + 1).toString().padStart(3, '0');
+                            const type = tokenTypes[j];
+                            const status = statuses[j];
+                            const now = new Date();
+                            
+                            const docRef = await db.collection('tokens').add({
+                                userId: studentUids[i],
+                                type: type,
+                                status: status,
+                                queuePosition: j + 1,
+                                totalInQueue: 5,
+                                tokenNumber: `T${tokenNum}`,
+                                requestedAt: new Date(now - (j + 1) * 3600000).toISOString(),
+                                message: j === 0 ? 'Need urgent assistance' : null,
+                                completedAt: status === 'completed' ? now.toISOString() : null
+                            });
+                            
+                            await docRef.update({ id: docRef.id });
+                            log(`✅ Token: T${tokenNum} - ${type} (${status})`, 'success');
+                        }
+                    }
+                }
+
+                // Success!
+                log('\n═══════════════════════════════════════', 'success');
+                log('✨ Firebase Setup Complete! ✨', 'success');
+                log('═══════════════════════════════════════\n', 'success');
+                log('📊 Created:', 'info');
+                log('  • 1 Admin user', 'info');
+                log('  • 5 Student users', 'info');
+                log('  • 4 Notices', 'info');
+                log('  • Sample tokens\n', 'info');
+                log('✅ You can now run the Flutter app!', 'success');
+
+                document.getElementById('credentials').style.display = 'block';
+                btn.textContent = '✅ Setup Complete!';
+                btn.style.background = '#22c55e';
+
+            } catch (error) {
+                log(`\n❌ Setup failed: ${error.message}`, 'error');
+                log('\nPlease ensure:', 'error');
+                log('1. Firebase Authentication is enabled', 'error');
+                log('2. Firestore Database is created', 'error');
+                log('3. Security rules allow writes', 'error');
+                btn.disabled = false;
+                btn.textContent = 'Retry Setup';
+            }
+        }
+    </script>
+</body>
+</html>
