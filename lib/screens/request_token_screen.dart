@@ -93,18 +93,65 @@ class _TokenTypeCard extends StatelessWidget {
 
   Future<void> _requestToken(BuildContext context) async {
     final tokenService = context.read<TokenService>();
+    final messageController = TextEditingController();
 
-    // Show loading
-    showDialog(
+    // Show message input dialog
+    final shouldProceed = await showDialog<bool>(
       context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(
-        child: CircularProgressIndicator(),
+      builder: (context) => AlertDialog(
+        title: Text('Request ${type.displayName}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Add an optional message with your request:',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: messageController,
+              decoration: const InputDecoration(
+                hintText: 'e.g., Need urgent help with...',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+              maxLength: 200,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Request Token'),
+          ),
+        ],
       ),
     );
 
+    if (shouldProceed != true) return;
+
+    // Show loading
+    if (context.mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
     try {
-      final token = await tokenService.requestToken(type);
+      final message = messageController.text.trim();
+      final token = await tokenService.requestToken(
+        type,
+        message: message.isEmpty ? null : message,
+      );
 
       if (context.mounted) {
         Navigator.of(context).pop(); // Close loading
@@ -126,12 +173,13 @@ class _TokenTypeCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Text('Queue Position: ${token.queuePosition}'),
-                Text(
-                    'Estimated Wait: ${token.estimatedWaitMinutes} minutes'),
+                const Chip(
+                  label: Text('Pending Admin Approval'),
+                  backgroundColor: Colors.orange,
+                ),
                 const SizedBox(height: 16),
                 const Text(
-                  'You will be notified when your turn is near.',
+                  'Your request is pending approval. You will be notified once approved.',
                   style: TextStyle(fontSize: 12),
                   textAlign: TextAlign.center,
                 ),

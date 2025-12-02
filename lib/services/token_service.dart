@@ -29,15 +29,23 @@ class TokenService extends ChangeNotifier {
 
   List<Token> get activeTokens => _allTokens
       .where((t) =>
+          t.status == TokenStatus.approved ||
           t.status == TokenStatus.waiting ||
           t.status == TokenStatus.nearTurn ||
           t.status == TokenStatus.active)
       .toList()
     ..sort((a, b) => b.requestedAt.compareTo(a.requestedAt));
 
+  List<Token> get pendingTokens => _allTokens
+      .where((t) => t.status == TokenStatus.pending)
+      .toList()
+    ..sort((a, b) => b.requestedAt.compareTo(a.requestedAt));
+
   List<Token> get historyTokens => _allTokens
       .where((t) =>
-          t.status == TokenStatus.completed || t.status == TokenStatus.expired)
+          t.status == TokenStatus.completed ||
+          t.status == TokenStatus.expired ||
+          t.status == TokenStatus.rejected)
       .toList()
     ..sort((a, b) => b.requestedAt.compareTo(a.requestedAt));
 
@@ -49,36 +57,41 @@ class TokenService extends ChangeNotifier {
     }
   }
 
-  Future<Token> requestToken(TokenType type) async {
+  Future<Token> requestToken(TokenType type, {String? message}) async {
     await Future.delayed(const Duration(milliseconds: 300));
+
+    final userId = _userId ?? FirebaseAuth.instance.currentUser?.uid ?? 'guest';
 
     if (_useFirestore && _firestore != null) {
       // Compute queue size from Firestore for this type
       final qSnap = await _firestore!
           .collection('tokens')
           .where('type', isEqualTo: type.name)
-          .where('status', whereIn: ['waiting', 'nearTurn', 'active'])
+          .where('status', whereIn: ['approved', 'waiting', 'nearTurn', 'active'])
           .get();
       final currentQueue = qSnap.size;
 
       final id = _generateTokenId();
       final token = Token(
         id: id,
+        userId: userId,
         type: type,
         requestedAt: DateTime.now(),
         queuePosition: currentQueue + 1,
         totalInQueue: currentQueue + 1,
-        status: TokenStatus.waiting,
+        status: TokenStatus.pending,
+        message: message,
       );
 
       await _firestore!.collection('tokens').doc(id).set({
         'id': id,
-        'userId': _userId ?? FirebaseAuth.instance.currentUser?.uid,
+        'userId': userId,
         'type': type.name,
         'requestedAt': token.requestedAt.toIso8601String(),
         'queuePosition': token.queuePosition,
         'totalInQueue': token.totalInQueue,
         'status': token.status.name,
+        'message': message,
       });
 
       // Local list will be updated by listener; return immediate token
@@ -87,16 +100,48 @@ class TokenService extends ChangeNotifier {
       final currentQueue = _getCurrentQueueSize(type);
       final token = Token(
         id: _generateTokenId(),
+        userId: userId,
         type: type,
         requestedAt: DateTime.now(),
         queuePosition: currentQueue + 1,
         totalInQueue: currentQueue + 1,
-        status: TokenStatus.waiting,
+        status: TokenStatus.pending,
+        message: message,
       );
       _allTokens.add(token);
       _queueCounters[type] = (_queueCounters[type] ?? 0) + 1;
       notifyListeners();
       return token;
+    }
+  }
+
+  Future<void> approveToken(String tokenId) async {
+    if (_useFirestore && _firestore != null) {
+      await _firestore!.collection('tokens').doc(tokenId).update({
+        'status': TokenStatus.approved.name,
+      });
+      return;
+    }
+    final token = getTokenById(tokenId);
+    if (token != null) {
+      token.status = TokenStatus.approved;
+      notifyListeners();
+    }
+  }
+
+  Future<void> rejectToken(String tokenId) async {
+    if (_useFirestore && _firestore != null) {
+      await _firestore!.collection('tokens').doc(tokenId).update({
+        'status': TokenStatus.rejected.name,
+        'completedAt': DateTime.now().toIso8601String(),
+      });
+      return;
+    }
+    final token = getTokenById(tokenId);
+    if (token != null) {
+      token.status = TokenStatus.rejected;
+      token.completedAt = DateTime.now();
+      notifyListeners();
     }
   }
 
@@ -136,7 +181,8 @@ class TokenService extends ChangeNotifier {
     return _allTokens
         .where((t) =>
             t.type == type &&
-            (t.status == TokenStatus.waiting ||
+            (t.status == TokenStatus.approved ||
+                t.status == TokenStatus.waiting ||
                 t.status == TokenStatus.nearTurn ||
                 t.status == TokenStatus.active))
         .length;
@@ -204,11 +250,13 @@ class TokenService extends ChangeNotifier {
         final status = TokenStatus.values.firstWhere((e) => e.name == (data['status'] as String));
         _allTokens.add(Token(
           id: data['id'] as String,
+          userId: data['userId'] as String? ?? 'unknown',
           type: type,
           requestedAt: DateTime.parse(data['requestedAt'] as String),
           queuePosition: (data['queuePosition'] as num).toInt(),
           totalInQueue: (data['totalInQueue'] as num).toInt(),
           status: status,
+          message: data['message'] as String?,
           completedAt: data['completedAt'] != null ? DateTime.parse(data['completedAt'] as String) : null,
         ));
       }

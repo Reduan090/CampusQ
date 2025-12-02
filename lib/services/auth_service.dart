@@ -39,9 +39,23 @@ class AuthService extends ChangeNotifier {
         cred = await auth.signInWithEmailAndPassword(email: email, password: password);
       } on FirebaseAuthException catch (e) {
         if (e.code == 'user-not-found') {
+          // Check if user exists in Firestore (created by admin)
+          final existingUsers = await FirebaseFirestore.instance
+              .collection('users')
+              .where('email', isEqualTo: email)
+              .get();
+
+          if (existingUsers.docs.isEmpty) {
+            throw Exception('No account found. Please contact admin to create your account.');
+          }
+
+          // User exists in Firestore but not in Auth - create Auth account
           cred = await auth.createUserWithEmailAndPassword(email: email, password: password);
-          // Set initial role in Firestore
-          await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).set({'email': email, 'role': role.name});
+          
+          // Update Firestore user with uid
+          await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).update({
+            'uid': cred.user!.uid,
+          });
         } else if (e.code == 'wrong-password') {
           rethrow;
         } else {
@@ -50,13 +64,28 @@ class AuthService extends ChangeNotifier {
         }
       }
 
-      // Read role from Firestore (override local role)
+      // Read user data from Firestore
       final snap = await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).get();
-      final roleStr = snap.data()?['role'] as String? ?? role.name;
+      final userData = snap.data();
+      
+      if (userData == null) {
+        throw Exception('User data not found');
+      }
+
+      final isActive = userData['isActive'] as bool? ?? true;
+      if (!isActive) {
+        await auth.signOut();
+        throw Exception('Your account has been deactivated. Please contact admin.');
+      }
+
+      final roleStr = userData['role'] as String? ?? role.name;
       _email = email;
       _role = roleStr == 'admin' ? UserRole.admin : UserRole.student;
       _loggedIn = true;
-    } catch (_) {
+    } catch (e) {
+      // If it's our custom error, rethrow
+      if (e is Exception) rethrow;
+      
       // Local auth fallback
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_keyLoggedIn, true);

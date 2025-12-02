@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'theme/classic_theme.dart';
 import 'services/token_service.dart';
 import 'services/notification_service.dart';
 import 'services/auth_service.dart';
+import 'services/user_service.dart';
+import 'services/notice_service.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/admin/admin_home_screen.dart';
@@ -34,13 +37,7 @@ class MyApp extends StatelessWidget {
       child: MaterialApp(
         title: 'Virtual Token System',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.deepPurple,
-            brightness: Brightness.light,
-          ),
-          useMaterial3: true,
-        ),
+        theme: ClassicTheme.light(),
         home: const _Bootstrap(),
       ),
     );
@@ -87,6 +84,16 @@ class _BootstrapState extends State<_Bootstrap> {
             useFirestore: _firebaseReady,
             firestore: _firebaseReady ? FirebaseFirestore.instance : null,
             userId: FirebaseAuth.instance.currentUser?.uid,
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => UserService(
+            firestore: _firebaseReady ? FirebaseFirestore.instance : null,
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => NoticeService(
+            firestore: _firebaseReady ? FirebaseFirestore.instance : null,
           ),
         ),
       ],

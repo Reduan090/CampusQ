@@ -165,6 +165,12 @@ class TokenCard extends StatelessWidget {
 
   Color _getStatusColor() {
     switch (token.status) {
+      case TokenStatus.pending:
+        return Colors.orange;
+      case TokenStatus.approved:
+        return Colors.blue;
+      case TokenStatus.rejected:
+        return Colors.red;
       case TokenStatus.waiting:
         return Colors.blue;
       case TokenStatus.nearTurn:
@@ -236,6 +242,12 @@ class _StatusBadge extends StatelessWidget {
 
   Color _getBackgroundColor() {
     switch (status) {
+      case TokenStatus.pending:
+        return Colors.orange[100]!;
+      case TokenStatus.approved:
+        return Colors.blue[100]!;
+      case TokenStatus.rejected:
+        return Colors.red[100]!;
       case TokenStatus.waiting:
         return Colors.blue[100]!;
       case TokenStatus.nearTurn:
@@ -251,6 +263,12 @@ class _StatusBadge extends StatelessWidget {
 
   Color _getTextColor() {
     switch (status) {
+      case TokenStatus.pending:
+        return Colors.orange[900]!;
+      case TokenStatus.approved:
+        return Colors.blue[900]!;
+      case TokenStatus.rejected:
+        return Colors.red[900]!;
       case TokenStatus.waiting:
         return Colors.blue[900]!;
       case TokenStatus.nearTurn:
